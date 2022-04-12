@@ -14,6 +14,8 @@ from tinydb import TinyDB, Query, where
 db = TinyDB('/root/db.json')
 db_images = db.table('images')
 
+os.chdir("/root")
+
 def getEnv(key, defaultValue):
     value = os.getenv(key)
     if value is None or (len(value) == 0):
@@ -39,15 +41,17 @@ def on_connect(client, userdata, flags, rc):
 
 #mqtt message recieved
 def on_message(client, userdata, message):
+    os.chdir("/root")
     data = json.loads(message.payload.decode())
     if data['before']['label'] == "car":
         return
     url = "http://"+frigate_endpoint+"/api/events/" + data['before']['id'] + "/thumbnail.jpg"
     r = requests.get(url, allow_redirects=True)
-    new_image = '/root/birdwatch/static/'+data['before']['id']+'-'+ str(round(time.time(),2)).replace(".","-") +'.jpg'
+    new_image = './static/'+data['before']['id']+'-'+ str(round(time.time(),2)).replace(".","-") +'.jpg'
+    os.makedirs(os.path.dirname(new_image), exist_ok=True)
     #image = './static/'+data['before']['id']+'.jpg'
     open(new_image, 'wb').write(r.content)
-    os.chdir("/root/birdwatch/static")
+    
 
     unique = True
 
@@ -88,10 +92,11 @@ def save():
     model = json.loads(request.data).get('model')
     name = json.loads(request.data).get('name')
     r = requests.get('http://192.168.123.4:8083/classificationbox/state/'+model)
+    os.makedirs('./static/models/', exist_ok=True)
     if name == None:
-        open('/root/birdwatch/static/models/'+model+'.classificationbox', 'wb').write(r.content)
+        open('./static/models/'+model+'.classificationbox', 'wb').write(r.content)
     else:
-        open('/root/birdwatch/static/models/'+model+'-'+name+'.classificationbox', 'wb').write(r.content)
+        open('./static/models/'+model+'-'+name+'.classificationbox', 'wb').write(r.content)
 
     return {"success": model+" saved as: "+str(name)}
 
@@ -104,7 +109,7 @@ def load():
 
 @app.route('/models')
 def models():
-    return jsonify(glob.glob('/root/birdwatch/static/models/*'))
+    return jsonify(glob.glob('./static/models/*'))
 
 @app.route('/stats', methods = ['POST'])
 def stats():
@@ -159,7 +164,7 @@ def train():
         return {}
 
     r = requests.get(url, allow_redirects=True)
-    image = '/root/birdwatch/static/training/'+label+url[32:]
+    image = './static/training/'+label+url[32:]
     open(image, 'wb').write(r.content)
 
     r = requests.post('http://192.168.123.4:8083/classificationbox/models/'+model+'/teach', json={
