@@ -1,0 +1,429 @@
+<html>
+
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+
+
+    <script>
+
+        var gActiveModel = "Birds"
+
+        function removeOptions(selectElement) {
+            var i, L = selectElement.options.length - 1;
+            for (i = L; i >= 0; i--) {
+                selectElement.remove(i);
+            }
+        }
+
+        window.post = function (url, data) {
+            return fetch(url, { method: "POST", headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+        }
+
+        window.get = function (url, target = "msg-js") {
+            return fetch(url, { method: "GET" })
+        }
+
+        window.loadedModels = async function () {
+            result = window.get('/loadedModels').then(res => {
+                res.json().then(result => {
+                    select = document.getElementById('model-select')
+                    removeOptions(select)
+                    select.options[select.options.length] = new Option("SELECT A MODEL", "SELECT A MODEL")
+
+                    result.models.forEach((c) => {
+                        if (c.id == gActiveModel) {
+                            select.options[select.options.length] = new Option(c.id, c.id, true, true);
+                        } else {
+                            select.options[select.options.length] = new Option(c.id, c.id);
+                        }
+
+                    })
+                })
+            });
+        }
+
+        window.removeLoadedModel = function (id = gActiveModel) {
+            window.saveModel("bkp").then(res => {
+                window.post('/removeLoadedModel', { "model": id })
+            })
+
+        }
+
+        window.createModel = function (id, name, classes = [], options = {}) {
+            window.post('/createModel', {
+                "id": id,
+                "name": name,
+                "options": options,
+                "classes": classes
+            }).then(res => {
+                res.json().then(result => {
+                    window.refresh()
+                    document.getElementById("msg-js").innerHTML = result.success;
+                })
+            })
+        }
+
+
+        window.saveModel = function (name = "") {
+            if (!name) {
+                name = document.getElementById('customFileName').value
+            }
+
+            if (name) {
+                promise = window.post("/save", { "model": gActiveModel, "name": name })
+            } else {
+                promise = window.post("/save", { "model": gActiveModel })
+            }
+
+            return promise.then(res => {
+                console.log(res)
+                res.json().then(result => {
+                    console.log(result)
+                    span = document.getElementById('msg-js')
+                    span.innerHTML = JSON.stringify(result)
+
+                    window.refresh()
+                })
+            })
+        }
+
+        window.getSavedModels = function () {
+            window.get('/models').then(res => {
+                res.json().then(result => {
+
+                    select = document.getElementById('saved-model-load')
+                    removeOptions(select)
+
+                    select.options[select.options.length] = new Option("SELECT A MODEL", "SELECT A MODEL");
+                    result.forEach((item) => {
+                        select.options[select.options.length] = new Option(item.slice(30, -18), item.slice(30));
+                    })
+                })
+            })
+        }
+
+        window.loadSavedModel = function () {
+            name = document.getElementById('saved-model-load').value
+            window.post('/load', { "model": name }).then(res => {
+                res.json().then(result => {
+                    span = document.getElementById('msg-js')
+                    span.innerHTML = JSON.stringify(result)
+                    window.refresh()
+
+                })
+            })
+        }
+
+
+        window.getModelStats = function (model = gActiveModel) {
+            window.post('/stats', { "model": model }).then(res => {
+                res.json().then(result => {
+                    console.log(result)
+                    span = document.getElementById('msg-js')
+                    span.innerHTML = JSON.stringify(result)
+                })
+            })
+        }
+
+        window.train = function (label, image, index) {
+            window.post("/train", { "url": image, "label": label, "model": gActiveModel })
+            document.getElementById('entry-' + index).remove()
+        }
+
+        window.remove = function (image, index) {
+            window.post("/remove", { "url": image })
+            document.getElementById('entry-' + index).remove()
+
+        }
+
+        window.predict = function (url, index,) {
+            window.post("/predict", { "url": url, "model": gActiveModel }).then(res => {
+                res.json().then(result => {
+                    string = ""
+                    for (const hit of result.classes) {
+                        string += hit.id + " " + hit.score + "<br/>"
+                    }
+                    document.getElementById('pred-' + index).innerHTML = string;
+                })
+            })
+        }
+
+        window.predictUpload = function () {
+            file = document.getElementById('img').files[0]
+            reader = new FileReader()
+            reader.onload = function (e) {
+                b64_img = e.target.result.substr(23)
+
+                window.post('/predict_upload', { "model": gActiveModel, "b64_img": b64_img }).then(res => {
+                    res.json().then(result => {
+                        span = document.getElementById('msg-js')
+                        span.innerHTML = JSON.stringify(result)
+                    })
+                })
+            };
+            reader.readAsDataURL(file)
+        }
+
+        window.trainUpload = function () {
+            file = document.getElementById('img').files[0]
+            label = document.getElementById('uploadLabel').value
+            reader = new FileReader()
+            reader.onload = function (e) {
+                b64_img = e.target.result.substr(23)
+
+                window.post('/trainUpload', { "label": label, "b64_img": b64_img, "model": gActiveModel }).then(res => {
+                    res.json().then(result => {
+                        span = document.getElementById('msg-js')
+                        span.innerHTML = JSON.stringify(result)
+                    })
+                })
+            };
+            reader.readAsDataURL(file)
+        }
+
+        window.massTrain = function () {
+            urls = document.getElementById('massTrainUrls').value.split('\n');
+            label = document.getElementById('uploadLabel').value
+
+            body = { "examples": [] }
+            urls.forEach(url => {
+                x = {
+                    "class": label,
+                    "inputs": [{
+                        "key": "obejct",
+                        "type": "image_url",
+                        "value": url
+                    }]
+                }
+                body.examples.push(x)
+            })
+
+
+            window.post('/massTrainUpload', { "label": label, "body": body, "model": gActiveModel }).then(res => {
+                res.json().then(result => {
+                    span = document.getElementById('msg-js')
+                    span.innerHTML = JSON.stringify(result)
+                })
+            })
+
+        }
+
+        window.watch = function (e) {
+
+            btn = document.getElementById('createModel')
+
+            name = document.getElementsByName('mName')[0].value
+            id = document.getElementsByName('mId')[0].value
+            classes = document.getElementsByName('mClasses')[0].value
+
+            btn.setAttribute("onClick", "createModel('" + name + "','" + id + "'," + classes + ")");
+            console.log(e.value)
+        }
+
+        window.activeModelWatch = function (e) {
+            gActiveModel = document.getElementById('model-select').value
+            console.log(gActiveModel)
+        }
+
+
+        window.refresh = function () {
+            window.loadedModels();
+            window.getSavedModels();
+        }
+        window.refresh()
+    </script>
+    <style>
+        html {
+            font-family: sans-serif;
+            -ms-text-size-adjust: 100%;
+            -webkit-text-size-adjust: 100%;
+            box-sizing: border-box;
+        }
+
+        .entry {
+            display: flex;
+            flex: 1;
+            flex-direction: column;
+            position: relative;
+        }
+
+        input {
+            width: 150px;
+        }
+
+        pre {
+            white-space: pre-wrap;
+            white-space: -moz-pre-wrap;
+            white-space: -o-pre-wrap;
+            word-wrap: break-word;
+        }
+
+        #img {
+            width: 250px;
+        }
+
+        .flex-container {
+            display: flex;
+            flex-wrap: wrap;
+        }
+
+        .flex-item {
+            min-width: 220px;
+            max-width: 300px;
+
+        }
+
+        .prediction {
+            position: absolute;
+            color: orangered;
+            background-color: rgba(0, 0, 0, 1);
+        }
+
+        .trainbtn {
+            margin: 5px;
+            padding: 5px;
+            font-size: 16px;
+        }
+
+        .wrapper {
+            width: 100%;
+        }
+
+        .column {
+            float: left;
+            width: 100%;
+        }
+
+        .column-100 {
+            float: left;
+            width: 100%;
+        }
+
+        .title {
+            display: block;
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .clearfix::after {
+            content: "";
+            clear: both;
+            display: table;
+        }
+
+        @media (min-width: 768px) {
+            .column {
+                width: 33%;
+            }
+        }
+    </style>
+
+
+</head>
+
+<body>
+    <header>
+        <a href="/">
+            <h2>Model Trainer</h2>
+        </a>
+
+        <div class="wrapper clearfix">
+            <div class="column">
+                <span class="title">Manage Models:</span>
+                <label for="model-select">Active Model:</label>
+                <select onchange="activeModelWatch()" id="model-select">
+                    <option value="">SELECT A MODEL</option>
+                </select>
+                <button onclick="removeLoadedModel()">Remove Active Model</button><br />
+                <button onclick="saveModel()">Save Active Model</button>
+                <input id="customFileName" type="text" placeholder="Optional Filename"><br />
+                <button onclick="getModelStats()">Show Model Stats</button><br />
+
+
+
+                <label for="saved-model-load">Select Saved Model:</label>
+                <select id="saved-model-load">
+                    <option value="">SELECT A MODEL</option>
+                </select>
+                <button onclick="loadSavedModel()">Load Selected Model</button><br />
+
+                </select>
+
+            </div>
+
+            <div class="column">
+                <span class="title">Create New Model:</span>
+                <input onkeyup="watch(this)" name="mName" type="text" placeholder="Name"><br>
+                <input onkeyup="watch(this)" name="mId" type="text" placeholder="Id"><br>
+                <input onkeyup="watch(this)" name="mClasses" type="text" placeholder="['Class1', 'Class2', ...]"><br>
+                <button id="createModel" onclick="createModel('dummy', 'dummyModel', ['Dummy1', 'Dummy2'])">Create
+                    Model</button><br><br>
+
+
+            </div>
+
+            <div class="column">
+
+                <span class="title">Predict an image:</span>
+                <label>Select Image File:</label>
+                <input type="file" id="img" name="img" accept="image/*"><br />
+                <button onclick="predictUpload()" id="predictUploadBtn">Predict Upload</button><br />
+                <button onclick="trainUpload()" id="trainUploadBtn">Train Upload</button>
+                <input id="uploadLabel" type="text" placeholder="Label"><br>
+                <textarea id="massTrainUrls" placeholder="1 url per line"></textarea><br/>
+                <button onclick="massTrain()">Mass Train</button>
+            </div>
+
+            <div class="column-100">
+                <pre id="msg-js"></pre>
+            </div>
+        </div>
+
+
+
+
+
+
+
+
+
+    </header>
+
+
+
+    <h3>Available images for training: {{data|length}}</h3>
+    <div class="flex-container">
+        {% for entry in data %}
+        <div class="entry" id='entry-{{ loop.index }}'>
+
+            {% if "trainer.n147" in req %}
+            <img class="flex-item" src={{ entry.url |
+                replace("http://192.168.123.4:8070/","https://trainer.n147.ddnss.de/") }}>
+            {% else %}
+            <img class="flex-item" src={{ entry.url }}>
+            {% endif %}
+            <div class="flex-item">
+                <button class="trainbtn" onclick="predict('{{ entry.url }}', '{{ loop.index }}')">Predict</button>
+                <button class="trainbtn" onclick="remove('{{ entry.url }}', '{{loop.index}}')">Entfernen</button>
+            </div>
+            <div class="flex-item">
+                <button class="trainbtn" onclick="train('Taube', '{{ entry.url }}', '{{loop.index}}')">Taube</button>
+                <button class="trainbtn" onclick="train('Amsel', '{{ entry.url }}', '{{loop.index}}')">Amsel</button>
+                <button class="trainbtn" onclick="train('Reiher', '{{ entry.url }}', '{{loop.index}}')">Reiher</button>
+                <!--<button class="trainbtn" onclick="train('Krähe', '{{ entry.url }}', '{{loop.index}}')">Krähe</button>
+                <button class="trainbtn" onclick="train('Vogel', '{{ entry.url }}', '{{loop.index}}')">Vogel</button>
+                <button class="trainbtn" onclick="train('Person', '{{ entry.url }}', '{{loop.index}}')">Person</button>
+                <button class="trainbtn" onclick="train('Katze', '{{ entry.url }}', '{{loop.index}}')">Katze</button>-->
+                <button class="trainbtn"
+                    onclick="train('Unbekannt', '{{ entry.url }}', '{{loop.index}}')">Unbekannt</button>
+            </div>
+            <div class="prediction" id='pred-{{ loop.index }}'></div>
+
+        </div>
+        {% endfor %}
+    </div>
+</body>
+
+</html>
