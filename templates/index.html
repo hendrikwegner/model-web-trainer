@@ -2,12 +2,17 @@
 
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <meta content="Fri, 20 Jan 1984 01:11:11 GMT" />
+
 
 
 
     <script>
 
-        var gActiveModel = "Birds"
+        var gActiveModel = "NewBirds"
 
         function removeOptions(selectElement) {
             var i, L = selectElement.options.length - 1;
@@ -70,16 +75,16 @@
                 name = document.getElementById('customFileName').value
             }
 
+            examples = 0
+
             if (name) {
                 promise = window.post("/save", { "model": gActiveModel, "name": name })
             } else {
-                promise = window.post("/save", { "model": gActiveModel })
+                promise = window.post("/save", { "model": gActiveModel, "examples": examples })
             }
 
             return promise.then(res => {
-                console.log(res)
                 res.json().then(result => {
-                    console.log(result)
                     span = document.getElementById('msg-js')
                     span.innerHTML = JSON.stringify(result)
 
@@ -97,8 +102,19 @@
 
                     select.options[select.options.length] = new Option("SELECT A MODEL", "SELECT A MODEL");
                     result.forEach((item) => {
-                        select.options[select.options.length] = new Option(item.slice(30, -18), item.slice(30));
+                        select.options[select.options.length] = new Option(item.slice(16, -18), item.slice(30));
                     })
+                })
+            })
+        }
+
+        window.updateSettings = function () {
+            labels = document.getElementById('newLabels').value
+            cameras = document.getElementById('newCameras').value
+            window.post('/updateSettings', { "cameras": cameras, "labels": labels }).then(res => {
+                res.text().then(result => {
+                    document.body.innerHTML = '';
+                    document.write(result)
                 })
             })
         }
@@ -126,6 +142,12 @@
             })
         }
 
+
+        window.getModelInfo = function (model = gActiveModel) {
+            return window.post('/modelInfo', { "model": model })
+        }
+
+
         window.train = function (label, image, index) {
             window.post("/train", { "url": image, "label": label, "model": gActiveModel })
             document.getElementById('entry-' + index).remove()
@@ -137,7 +159,7 @@
 
         }
 
-        window.predict = function (url, index,) {
+        window.predict = function (url, index) {
             window.post("/predict", { "url": url, "model": gActiveModel }).then(res => {
                 res.json().then(result => {
                     string = ""
@@ -155,8 +177,15 @@
             reader.onload = function (e) {
                 b64_img = e.target.result.substr(23)
 
+                console.log(b64_img)
+
+                console.log(e)
+
+
+
                 window.post('/predict_upload', { "model": gActiveModel, "b64_img": b64_img }).then(res => {
                     res.json().then(result => {
+                        console.log(result.classes)
                         span = document.getElementById('msg-js')
                         span.innerHTML = JSON.stringify(result)
                     })
@@ -200,13 +229,60 @@
             })
 
 
-            window.post('/massTrainUpload', { "label": label, "body": body, "model": gActiveModel }).then(res => {
+            window.post('/massTrainUpload', { "body": body, "model": gActiveModel }).then(res => {
                 res.json().then(result => {
                     span = document.getElementById('msg-js')
                     span.innerHTML = JSON.stringify(result)
                 })
             })
 
+        }
+
+        window.getFrigateImages = function () {
+            camera = document.getElementById("frigate_camera").value
+            label = document.getElementById("frigate_label").value
+
+            window.post('/getFrigateImages', { "camera": camera, "label": label }).then(res => {
+                res.json().then(result => {
+                    console.log(result)
+                    container = document.getElementById("frigate_images")
+                    container.innerHTML = ''
+                    counter = document.getElementById("frigate_image_counter")
+                    counter.innerHTML = `Images loaded: ${result.data.length}`
+
+                    result.data.forEach(function (img, i) {
+                        var div = document.createElement('div');
+                        div.setAttribute('class', 'frigate entry');
+                        div.setAttribute('id', 'entry-' + String(parseInt(i) + 9999));
+
+                        div.innerHTML = `<img class="flex-item" src="data:image/png;base64,${img.thumbnail}">
+
+                                        <div class="flex-item">
+                                            <button class="trainbtn" onclick="predict('http://192.168.123.4:5000/api/events/${img.id}/thumbnail.jpg', '${i}')">Predict</button>
+                                        </div>
+                                        <div class="flex-item button-container">
+                                            <button class="trainbtn" onclick="train('Amsel', 'http://192.168.123.4:5000/api/events/${img.id}/thumbnail.jpg', '${String(parseInt(i) + 9999)}')">Amsel</button>
+                                            <button class="trainbtn" onclick="train('Taube', 'http://192.168.123.4:5000/api/events/${img.id}/thumbnail.jpg', '${String(parseInt(i) + 9999)}')">Taube</button>
+                                            <button class="trainbtn" onclick="train('Reiher', 'http://192.168.123.4:5000/api/events/${img.id}/thumbnail.jpg', '${String(parseInt(i) + 9999)}')">Reiher</button>
+                                        </div>
+                                        <div class="prediction" id="pred-${i}"></div>`
+
+                        container.appendChild(div)
+                    })
+                    window.updateButtons()
+
+
+
+
+                })
+            })
+        }
+
+        window.clearFrigateImages = function() {
+            container = document.getElementById("frigate_images")
+            container.innerHTML = ''
+            counter = document.getElementById("frigate_image_counter")
+            counter.innerHTML = ''
         }
 
         window.watch = function (e) {
@@ -223,13 +299,39 @@
 
         window.activeModelWatch = function (e) {
             gActiveModel = document.getElementById('model-select').value
+            window.refresh()
             console.log(gActiveModel)
         }
 
+        window.updateButtons = function () {
+            containers = document.querySelectorAll('.button-container')
+            window.getModelInfo().then(res => {
 
+                res.json().then(result => {
+                    containers.forEach(container => {
+                        url = container.children[1].attributes.getNamedItem('onclick').value.match('(http)(.*)(jpg)')[0]
+                        number = container.children[1].attributes.getNamedItem('onclick').value.match("(?<=jpg', ')(.*?)(?=')")[0]
+                        container.innerHTML = ''
+                        classes = result.classes
+
+                        classes.forEach(c => {
+                            var btn = document.createElement('button');
+                            btn.setAttribute('class', 'trainbtn');
+                            btn.setAttribute('onclick', `train('${c}', '${url}', '${number}')`)
+                            btn.textContent = c
+                            container.appendChild(btn)
+                        })
+                    })
+                })
+            })
+        }
+
+
+        window.getModelInfo()
         window.refresh = function () {
             window.loadedModels();
             window.getSavedModels();
+            window.updateButtons();
         }
         window.refresh()
     </script>
@@ -313,6 +415,12 @@
             display: table;
         }
 
+        #frigate_images {
+            border-top: 2px solid black;
+            margin: 10px 0;
+
+        }
+
         @media (min-width: 768px) {
             .column {
                 width: 33%;
@@ -340,7 +448,6 @@
                 <button onclick="saveModel()">Save Active Model</button>
                 <input id="customFileName" type="text" placeholder="Optional Filename"><br />
                 <button onclick="getModelStats()">Show Model Stats</button><br />
-
 
 
                 <label for="saved-model-load">Select Saved Model:</label>
@@ -372,7 +479,7 @@
                 <button onclick="predictUpload()" id="predictUploadBtn">Predict Upload</button><br />
                 <button onclick="trainUpload()" id="trainUploadBtn">Train Upload</button>
                 <input id="uploadLabel" type="text" placeholder="Label"><br>
-                <textarea id="massTrainUrls" placeholder="1 url per line"></textarea><br/>
+                <textarea id="massTrainUrls" placeholder="1 url per line"></textarea><br />
                 <button onclick="massTrain()">Mass Train</button>
             </div>
 
@@ -381,43 +488,64 @@
             </div>
         </div>
 
-
-
-
-
-
-
-
-
     </header>
 
 
-
+    {{ cameras }}
+    {{ labels }}
     <h3>Available images for training: {{data|length}}</h3>
+
+    <input type="text" id="newCameras" value="{{ cameras }}">
+    <input type="text" id="newLabels" value="{{ labels }}">
+    <button onclick="updateSettings()">Update</button>
+
+    <h4>Search Frigate Images</h4>
+
+
+    <select name="frigate_camera" id="frigate_camera">
+        <option value="Pond">Pond</option>
+        <option value="Street">Street</option>
+        <option value="Backside">Backside</option>
+        <option value="Backgarden">Backgarden</option>
+        <option value="Garage">Garage</option>
+        <option value="Frontdoor">Frontdoor</option>
+        <option value="Terrace">Terrace</option>
+    </select>
+    <select name="frigate_label" id="frigate_label">
+        <option value="bird">Bird</option>
+        <option value="cat">Cat</option>
+        <option value="dog">Dog</option>
+        <option value="car">Car</option>
+        <option value="person">Person</option>
+    </select>
+    <button onclick="getFrigateImages()">Get Images</button>
+    <button onclick="clearFrigateImages()">clear</button>
+
+    <p id="frigate_image_counter"></p>
+    <div class="flex-container" id="frigate_images">
+
+    </div>
+
+
     <div class="flex-container">
         {% for entry in data %}
         <div class="entry" id='entry-{{ loop.index }}'>
 
             {% if "trainer.n147" in req %}
             <img class="flex-item" src={{ entry.url |
-                replace("http://192.168.123.4:8070/","https://trainer.n147.ddnss.de/") }}>
+                replace("http://192.168.123.4:8070/","https://trainer.n147.ddnss.de/") ~ "?time=" ~ time}}>
             {% else %}
-            <img class="flex-item" src={{ entry.url }}>
+            <img class="flex-item" src={{ entry.url ~ "?time=" ~ time }}>
             {% endif %}
             <div class="flex-item">
                 <button class="trainbtn" onclick="predict('{{ entry.url }}', '{{ loop.index }}')">Predict</button>
                 <button class="trainbtn" onclick="remove('{{ entry.url }}', '{{loop.index}}')">Entfernen</button>
             </div>
-            <div class="flex-item">
+            <div class="flex-item button-container">
                 <button class="trainbtn" onclick="train('Taube', '{{ entry.url }}', '{{loop.index}}')">Taube</button>
                 <button class="trainbtn" onclick="train('Amsel', '{{ entry.url }}', '{{loop.index}}')">Amsel</button>
                 <button class="trainbtn" onclick="train('Reiher', '{{ entry.url }}', '{{loop.index}}')">Reiher</button>
-                <!--<button class="trainbtn" onclick="train('Krähe', '{{ entry.url }}', '{{loop.index}}')">Krähe</button>
-                <button class="trainbtn" onclick="train('Vogel', '{{ entry.url }}', '{{loop.index}}')">Vogel</button>
-                <button class="trainbtn" onclick="train('Person', '{{ entry.url }}', '{{loop.index}}')">Person</button>
-                <button class="trainbtn" onclick="train('Katze', '{{ entry.url }}', '{{loop.index}}')">Katze</button>-->
-                <button class="trainbtn"
-                    onclick="train('Unbekannt', '{{ entry.url }}', '{{loop.index}}')">Unbekannt</button>
+                <button class="trainbtn" onclick="train('Unbekannt', '{{ entry.url }}', '{{loop.index}}')">Unbekannt</button>
             </div>
             <div class="prediction" id='pred-{{ loop.index }}'></div>
 

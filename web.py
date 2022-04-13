@@ -4,7 +4,7 @@ import glob
 import json
 import requests
 import paho.mqtt.client as mqttClient
-from flask import Flask, render_template, request,  jsonify
+from flask import Flask, render_template, request,  jsonify, redirect, url_for
 
 
 app = Flask(__name__)
@@ -47,26 +47,30 @@ def on_message(client, userdata, message):
         return
     url = "http://"+frigate_endpoint+"/api/events/" + data['before']['id'] + "/thumbnail.jpg"
     r = requests.get(url, allow_redirects=True)
-    new_image = './static/'+data['before']['id']+'-'+ str(round(time.time(),2)).replace(".","-") +'.jpg'
+    new_image = './static/images/'+data['before']['id']+'-'+ str(round(time.time(),2)).replace(".","-") +'.jpg'
     os.makedirs(os.path.dirname(new_image), exist_ok=True)
     #image = './static/'+data['before']['id']+'.jpg'
     open(new_image, 'wb').write(r.content)
-    
+
+
+
 
     unique = True
 
-    for file in glob.glob(data['before']['id']+"*"):
+
+
+    for file in glob.glob("./static/images/"+data['before']['id']+"*"):
         if file in new_image:
             continue
         if open(file,"rb").read() == open(new_image,"rb").read():
             unique = False
-            print("would remove file: " + file + " same as: " + new_image)
-            os.remove(file)
-            db_images.remove(where('url') == "http://192.168.123.4:8070/static/"+file)
+            #print("would remove file: " + file + " same as: " + new_image)
+           #os.remove(file)
+            #db_images.remove(where('url') == "http://192.168.123.4:8070/static/images/"+file)
 
 
     if unique:
-        db_images.insert({'label': data['before']['label'], 'url': "http://192.168.123.4:8070"+new_image[15:], "eventid": data['before']['id'], "camera": data['before']['camera']})
+        db_images.insert({'label': data['before']['label'], 'url': "http://192.168.123.4:8070"+new_image[1:], "eventid": data['before']['id'], "camera": data['before']['camera']})
 
 
 Connected = False   #global variable for the state of the connection
@@ -82,10 +86,24 @@ while Connected != True:    #Wait for connection
 
 client.subscribe("frigate/events")
 
+cameras = ['Pond', 'Street', "Backgarden", "Backside"]
+labels = ["bird"]
 
-@app.route('/')
+@app.route('/', methods = ['POST', 'GET'])
 def index():
-    return render_template('index.html', data=db_images.search((where('label').one_of(["bird"]) & (where('camera').one_of(["Pond", "Street", "Backgarden", "Backside"])))), req=request.url)
+    images = db_images.search((where('label').one_of(labels) & (where('camera').one_of(cameras))))
+    return render_template('index.html', time=time.time(), data=images, req=request.url, labels=labels, cameras=cameras)
+
+@app.route('/updateSettings', methods = ['POST'])
+def updateSettings():
+    global cameras
+    global labels
+    cameras = json.loads(request.data).get('cameras')
+    labels = json.loads(request.data).get('labels')
+
+    return redirect(url_for('index'))
+
+
 
 @app.route('/save', methods = ['POST'])
 def save():
@@ -105,11 +123,18 @@ def load():
     model = json.loads(request.data).get('model')
     r = requests.post('http://192.168.123.4:8083/classificationbox/state', json={"url": "http://192.168.123.4:8070/static/models/"+model})
     return r.json()
-    
+
 
 @app.route('/models')
 def models():
     return jsonify(glob.glob('./static/models/*'))
+
+
+@app.route('/modelInfo', methods = ['POST'])
+def modelInfo():
+    model = json.loads(request.data).get('model')
+    r = requests.get('http://192.168.123.4:8083/classificationbox/models/'+model)
+    return r.json()
 
 @app.route('/stats', methods = ['POST'])
 def stats():
@@ -142,7 +167,7 @@ def removeLoadedModel():
     model = json.loads(request.data).get('model')
     r = requests.delete('http://192.168.123.4:8083/classificationbox/models/'+model)
     return r.json()
-    
+
 
 
 @app.route('/remove', methods = ['POST'])
@@ -164,7 +189,8 @@ def train():
         return {}
 
     r = requests.get(url, allow_redirects=True)
-    image = './static/training/'+label+url[32:]
+    image = './static/training/'+label+'/'+str(time.time())+'.jpg'
+    os.makedirs(os.path.dirname(image), exist_ok=True)
     open(image, 'wb').write(r.content)
 
     r = requests.post('http://192.168.123.4:8083/classificationbox/models/'+model+'/teach', json={
@@ -203,7 +229,7 @@ def trainUpload():
     return r.json()
 
 @app.route('/massTrainUpload', methods = ['POST'])
-def train_upload():
+def massTrainUpload():
 
     model = json.loads(request.data).get('model')
     body = json.loads(request.data).get('body')
@@ -235,10 +261,10 @@ def predict():
 
 @app.route('/predict_upload', methods = ['POST'])
 def predict_upload():
-    
+
     model = json.loads(request.data).get('model')
     b64_img = json.loads(request.data).get('b64_img')
-   
+
     r = requests.post('http://192.168.123.4:8083/classificationbox/models/'+model+'/predict', json={
                 "inputs": [
                     {
@@ -249,7 +275,22 @@ def predict_upload():
                 ]
             })
 
+    print(r.json())
+
     return r.json()
+
+
+@app.route('/getFrigateImages', methods = ['POST'])
+def getFrigateImages():
+
+    frigate_camera = json.loads(request.data).get('camera')
+    frigate_label = json.loads(request.data).get('label')
+
+
+    r = requests.get('http://192.168.123.4:5000/api/events?limit=10000&label='+frigate_label+'&include_thumbnails=1&camera='+frigate_camera)
+
+    return {"data": r.json()}
+
 
 
 
@@ -262,3 +303,21 @@ except KeyboardInterrupt:
     print("exiting")
     client.disconnect()
     client.loop_stop()
+
+
+
+@app.route('/predict_upload', methods = ['POST'])
+def predict_upload():
+
+    model = json.loads(request.data).get('model')
+    b64_img = json.loads(request.data).get('b64_img')
+
+    r = requests.post('http://192.168.123.4:8083/classificationbox/models/'+model+'/predict', json={
+                "inputs": [
+                    {
+                        "key": "object",
+                        "type": "image_base64 ",
+                        "value": b64_img
+                    }
+                ]})
+    return r.json()
